@@ -113,31 +113,44 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
 
   useEffect(() => {
     let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
     setLoading(true)
     setError(null)
-    const url = refreshKey > 0 ? '/plugin-store/catalog?refresh=1' : '/plugin-store/catalog'
-    Promise.all([
-      fetch(url).then((r) => r.json()),
-      fetch('/plugin-store/installed').then((r) => r.json()),
-      fetch('/plugin-store/install-meta').then((r) => r.json()),
-    ]).then(
-      ([c, i, m]) => {
-        if (!alive) return
-        if (!c || c.ok !== true) throw new Error(c?.error?.message || 'catalog load failed')
-        setCatalog(c)
-        const deps = i && i.dependencies && typeof i.dependencies === 'object' ? Object.values(i.dependencies) : []
-        setInstalledSpecs(deps.filter((s): s is string => typeof s === 'string'))
-        setInstallMeta(m && m.meta && typeof m.meta === 'object' ? m.meta : {})
-        setLoading(false)
-      },
-      (e) => {
-        if (!alive) return
-        setError(e instanceof Error ? e.message : String(e))
-        setLoading(false)
-      },
-    )
+
+    const load = (refresh: boolean) => {
+      const url = refresh ? '/plugin-store/catalog?refresh=1' : '/plugin-store/catalog'
+      Promise.all([
+        fetch(url).then((r) => r.json()),
+        fetch('/plugin-store/installed').then((r) => r.json()),
+        fetch('/plugin-store/install-meta').then((r) => r.json()),
+      ]).then(
+        ([c, i, m]) => {
+          if (!alive) return
+          if (!c || c.ok !== true) throw new Error(c?.error?.message || 'catalog load failed')
+          setCatalog(c)
+          const deps = i && i.dependencies && typeof i.dependencies === 'object' ? Object.values(i.dependencies) : []
+          setInstalledSpecs(deps.filter((s): s is string => typeof s === 'string'))
+          setInstallMeta(m && m.meta && typeof m.meta === 'object' ? m.meta : {})
+          setLoading(false)
+          const stillPartial =
+            c.partial === true ||
+            (typeof c.fetched === 'number' && typeof c.total === 'number' && c.fetched > 0 && c.fetched < c.total)
+          if (stillPartial) {
+            timer = setTimeout(() => load(false), 8000)
+          }
+        },
+        (e) => {
+          if (!alive) return
+          setError(e instanceof Error ? e.message : String(e))
+          setLoading(false)
+        },
+      )
+    }
+
+    load(refreshKey > 0)
     return () => {
       alive = false
+      if (timer) clearTimeout(timer)
     }
   }, [refreshKey])
 

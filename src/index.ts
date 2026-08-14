@@ -6,7 +6,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fetchCatalog } from './catalog'
+import { fetchCatalog, fetchTopPage } from './catalog'
 import { dshHome, readInstallMeta, readInstalled, runInstall, runUninstall } from './install'
 
 const CACHE_TTL_MS = 30 * 60 * 1000
@@ -57,13 +57,52 @@ export function apply(ctx: Ctx) {
   const profile = process.env.DSH_PLUGIN_STORE_PROFILE || 'web'
 
   let cache: CatalogCache | null = readDiskCache()
+  let topCache: CatalogCache | null = null
+  let refreshing = false
 
-  async function catalog(force: boolean) {
-    if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache
-    const { total, entries, partial } = await fetchCatalog(token)
-    cache = { at: Date.now(), total, entries, partial }
-    writeDiskCache(cache)
-    return cache
+  function refreshInBackground(): void {
+    if (refreshing) return
+    refreshing = true
+    void (async () => {
+      try {
+        const { total, entries, partial } = await fetchCatalog(token)
+        cache = { at: Date.now(), total, entries, partial }
+        writeDiskCache(cache)
+      } catch {
+        // keep the existing cache on failure
+      } finally {
+        refreshing = false
+      }
+    })()
+  }
+
+  async function catalog(force: boolean): Promise<CatalogCache> {
+    if (!force) {
+      if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache
+      if (cache) {
+        // Stale cache: return it immediately and refresh in the background.
+        refreshInBackground()
+        return cache
+      }
+      if (topCache) return topCache
+      refreshInBackground()
+      return fetchFastTop()
+    }
+    // force: clear caches, refresh, return a fast top page.
+    cache = null
+    topCache = null
+    refreshInBackground()
+    return fetchFastTop()
+  }
+
+  async function fetchFastTop(): Promise<CatalogCache> {
+    try {
+      const top = await fetchTopPage(token)
+      topCache = { at: Date.now(), total: top.total, entries: top.entries, partial: true }
+      return topCache
+    } catch {
+      return { at: 0, total: 0, entries: [], partial: true }
+    }
   }
 
   ctx.effect(

@@ -121,6 +121,27 @@ export async function fetchCatalog(token?: string): Promise<CatalogResult> {
   return { total, entries, partial }
 }
 
+/** Fetch just the top 100 by stars (1 request) — the fast first paint. */
+export async function fetchTopPage(token?: string): Promise<CatalogResult> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'dsh-plugin-store',
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const url = `${GITHUB_API}?q=${encodeURIComponent(QUERY)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=1`
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new Error(`GitHub API request failed (HTTP ${res.status})`)
+
+  const data = (await res.json()) as { total_count?: number; items?: unknown[] }
+  const items = Array.isArray(data.items) ? data.items : []
+  return {
+    total: typeof data.total_count === 'number' ? data.total_count : 0,
+    entries: items.map((item) => normalize(item)),
+    partial: true,
+  }
+}
+
 function normalize(item: any): PluginEntry {
   const fullName: string = item.full_name ?? ''
   const owner: string = item.owner?.login ?? ''
