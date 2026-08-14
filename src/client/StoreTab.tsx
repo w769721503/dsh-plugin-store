@@ -62,10 +62,27 @@ function searchText(entry: StoreEntry): string {
     .toLowerCase()
 }
 
+function pageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) {
+    const out: number[] = []
+    for (let i = 1; i <= total; i++) out.push(i)
+    return out
+  }
+  const pages: (number | '…')[] = [1]
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  if (start > 2) pages.push('…')
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (end < total - 1) pages.push('…')
+  pages.push(total)
+  return pages
+}
+
 export function StoreTab({ t }: { t: (key: string) => string }) {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<CategoryFilter>('all')
@@ -73,6 +90,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
   const [sort, setSort] = useState<SortId>('stars')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [jump, setJump] = useState('')
   const [installedSpecs, setInstalledSpecs] = useState<string[]>([])
   const [installing, setInstalling] = useState<Record<string, InstallPhase>>({})
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({})
@@ -157,6 +175,11 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     return installedSpecs.some((s) => s.toLowerCase().includes(needle))
   }
 
+  const showNotice = (type: 'success' | 'error', text: string) => {
+    setNotice({ type, text })
+    setTimeout(() => setNotice(null), 6000)
+  }
+
   const install = (entry: StoreEntry) => {
     setInstalling((prev) => ({ ...prev, [entry.full_name]: 'installing' }))
     setInstallErrors((prev) => {
@@ -174,21 +197,31 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
         if (res && res.ok) {
           setInstalling((prev) => ({ ...prev, [entry.full_name]: 'installed' }))
           setInstalledSpecs((prev) => [...prev, entry.full_name])
+          showNotice('success', res.log || `${entry.full_name} ${t('installSuccess')}`)
         } else {
           setInstalling((prev) => ({ ...prev, [entry.full_name]: 'error' }))
-          setInstallErrors((prev) => ({
-            ...prev,
-            [entry.full_name]: res?.error?.message || res?.log?.trim() || t('installFailed'),
-          }))
+          const msg = res?.log || res?.error?.message || t('installFailed')
+          setInstallErrors((prev) => ({ ...prev, [entry.full_name]: msg }))
+          showNotice('error', `${entry.full_name}: ${msg}`)
         }
       })
       .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e)
         setInstalling((prev) => ({ ...prev, [entry.full_name]: 'error' }))
-        setInstallErrors((prev) => ({ ...prev, [entry.full_name]: e instanceof Error ? e.message : String(e) }))
+        setInstallErrors((prev) => ({ ...prev, [entry.full_name]: msg }))
+        showNotice('error', `${entry.full_name}: ${msg}`)
       })
   }
 
   const resetPage = () => setPage(1)
+
+  const jumpTo = () => {
+    const n = Number(jump)
+    if (Number.isInteger(n) && n >= 1 && n <= totalPages) {
+      setPage(n)
+      setJump('')
+    }
+  }
 
   const total = catalog?.total ?? 0
   const fetched = catalog?.fetched ?? 0
@@ -208,6 +241,15 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
 
       {catalog ? (
         <>
+          {notice ? (
+            <div className="ps-notice" data-type={notice.type} role="status">
+              <span>{notice.text}</span>
+              <button type="button" onClick={() => setNotice(null)} aria-label={t('close')}>
+                ×
+              </button>
+            </div>
+          ) : null}
+
           <div className="ps-heading">
             <h3>
               {total} {t('total')}
@@ -382,12 +424,28 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                   ))}
                 </select>
               </label>
-              <span className="ps-pageinfo">
-                {currentPage} / {totalPages}
-              </span>
               <button type="button" className="ps-pager" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
                 {t('prev')}
               </button>
+              <div className="ps-pages">
+                {pageList(currentPage, totalPages).map((p, idx) =>
+                  p === '…' ? (
+                    <span key={`e${idx}`} className="ps-ellipsis">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={p}
+                      type="button"
+                      className="ps-pagenum"
+                      data-active={p === currentPage}
+                      onClick={() => setPage(p)}
+                    >
+                      {p}
+                    </button>
+                  ),
+                )}
+              </div>
               <button
                 type="button"
                 className="ps-pager"
@@ -396,6 +454,22 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               >
                 {t('next')}
               </button>
+              <label className="ps-jump">
+                <span className="ps-select-label">{t('jumpTo')}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={jump}
+                  onChange={(e) => setJump(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') jumpTo()
+                  }}
+                />
+                <button type="button" className="ps-pager" onClick={jumpTo}>
+                  {t('go')}
+                </button>
+              </label>
             </div>
           ) : null}
         </>

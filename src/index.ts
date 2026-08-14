@@ -61,7 +61,7 @@ export function apply(ctx: Ctx) {
                 sendJson(res, 400, { ok: false, error: { code: 'bad_full_name', message: 'Invalid repository name.' } })
                 return
               }
-              const result = await runInstall(fullName, profile)
+              const result = await runInstall(fullName, profile, token)
               sendJson(res, result.ok ? 200 : 500, {
                 ok: result.ok,
                 full_name: fullName,

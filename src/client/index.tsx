@@ -28,6 +28,10 @@ const zh = {
   perPage: '每页',
   prev: '上一页',
   next: '下一页',
+  installSuccess: '安装成功，重启后生效',
+  jumpTo: '跳转',
+  go: '前往',
+  close: '关闭',
 }
 
 const en = {
@@ -55,6 +59,10 @@ const en = {
   perPage: 'Per page',
   prev: 'Prev',
   next: 'Next',
+  installSuccess: 'Installed. Restart to apply.',
+  jumpTo: 'Jump to',
+  go: 'Go',
+  close: 'Close',
 }
 
 interface Ctx {
