@@ -24,6 +24,10 @@ const zh = {
   installFailed: '安装失败',
   empty: '暂无插件。',
   emptySearch: '没有匹配的插件。',
+  refresh: '刷新',
+  perPage: '每页',
+  prev: '上一页',
+  next: '下一页',
 }
 
 const en = {
@@ -47,6 +51,10 @@ const en = {
   installFailed: 'Install failed',
   empty: 'No plugins available.',
   emptySearch: 'No matching plugins.',
+  refresh: 'Refresh',
+  perPage: 'Per page',
+  prev: 'Prev',
+  next: 'Next',
 }
 
 interface Ctx {

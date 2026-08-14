@@ -36,6 +36,8 @@ type CategoryFilter = 'all' | CategoryId
 type TagFilter = 'all' | 'indexed' | TagId
 type InstallPhase = 'installing' | 'installed' | 'error'
 
+const PAGE_SIZES = [10, 30, 50]
+
 const TAG_LABEL: Record<string, string> = Object.fromEntries(TAGS.map((t) => [t.id, t.zh]))
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.zh]))
 
@@ -64,10 +66,13 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<CategoryFilter>('all')
   const [tag, setTag] = useState<TagFilter>('all')
   const [sort, setSort] = useState<SortId>('stars')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [installedSpecs, setInstalledSpecs] = useState<string[]>([])
   const [installing, setInstalling] = useState<Record<string, InstallPhase>>({})
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({})
@@ -76,8 +81,9 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     let alive = true
     setLoading(true)
     setError(null)
+    const url = refreshKey > 0 ? '/plugin-store/catalog?refresh=1' : '/plugin-store/catalog'
     Promise.all([
-      fetch('/plugin-store/catalog').then((r) => r.json()),
+      fetch(url).then((r) => r.json()),
       fetch('/plugin-store/installed').then((r) => r.json()),
     ]).then(
       ([c, i]) => {
@@ -97,7 +103,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     return () => {
       alive = false
     }
-  }, [])
+  }, [refreshKey])
 
   const facetCounts = useMemo(() => {
     const entries = catalog?.entries ?? []
@@ -141,6 +147,10 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     return list
   }, [filtered, sort])
 
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pageEntries = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   const isInstalled = (entry: StoreEntry): boolean => {
     if (installing[entry.full_name] === 'installed') return true
     const needle = entry.full_name.toLowerCase()
@@ -178,6 +188,8 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
       })
   }
 
+  const resetPage = () => setPage(1)
+
   const total = catalog?.total ?? 0
   const fetched = catalog?.fetched ?? 0
 
@@ -188,7 +200,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
       {error ? (
         <div className="ps-failure">
           <p role="alert">{error}</p>
-          <button type="button" onClick={() => window.location.reload()}>
+          <button type="button" onClick={() => setRefreshKey((k) => k + 1)}>
             {t('retry')}
           </button>
         </div>
@@ -202,9 +214,11 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             </h3>
             <span>
               {t('indexedCount')} {facetCounts.indexed}
-              {fetched > 0 && fetched < total ? ` · 显示 ${fetched}` : ''}
-              {filtered.length !== facetCounts.total ? ` · ${filtered.length}` : ''}
+              {fetched > 0 && fetched < total ? ` · 已加载 ${fetched}` : ''}
             </span>
+            <button type="button" className="ps-refresh" onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
+              {t('refresh')}
+            </button>
           </div>
 
           <div className="ps-toolbar">
@@ -214,14 +228,20 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                 value={query}
                 placeholder={t('search')}
                 aria-label={t('search')}
-                onChange={(e) => setQuery(e.currentTarget.value)}
+                onChange={(e) => {
+                  setQuery(e.currentTarget.value)
+                  resetPage()
+                }}
               />
             </label>
             <label className="ps-select">
               <span className="ps-select-label">{t('category')}</span>
               <select
                 value={category}
-                onChange={(e) => setCategory(e.currentTarget.value as CategoryFilter)}
+                onChange={(e) => {
+                  setCategory(e.currentTarget.value as CategoryFilter)
+                  resetPage()
+                }}
                 aria-label={t('category')}
               >
                 <option value="all">{t('allCategories')}</option>
@@ -234,7 +254,14 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             </label>
             <label className="ps-select">
               <span className="ps-select-label">{t('sort')}</span>
-              <select value={sort} onChange={(e) => setSort(e.currentTarget.value as SortId)} aria-label={t('sort')}>
+              <select
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.currentTarget.value as SortId)
+                  resetPage()
+                }}
+                aria-label={t('sort')}
+              >
                 {SORTS.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.zh}
@@ -245,11 +272,27 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
           </div>
 
           <div className="ps-tags" role="toolbar" aria-label={t('allTags')}>
-            <button type="button" className="ps-chip" data-active={tag === 'all'} onClick={() => setTag('all')}>
+            <button
+              type="button"
+              className="ps-chip"
+              data-active={tag === 'all'}
+              onClick={() => {
+                setTag('all')
+                resetPage()
+              }}
+            >
               {t('allTags')}
               <span className="ps-chip-count">{facetCounts.total}</span>
             </button>
-            <button type="button" className="ps-chip" data-active={tag === 'indexed'} onClick={() => setTag('indexed')}>
+            <button
+              type="button"
+              className="ps-chip"
+              data-active={tag === 'indexed'}
+              onClick={() => {
+                setTag('indexed')
+                resetPage()
+              }}
+            >
               {t('indexed')}
               <span className="ps-chip-count">{facetCounts.indexed}</span>
             </button>
@@ -259,7 +302,10 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                 type="button"
                 className="ps-chip"
                 data-active={tag === tg.id}
-                onClick={() => setTag(tg.id as TagId)}
+                onClick={() => {
+                  setTag(tg.id as TagId)
+                  resetPage()
+                }}
               >
                 {tg.zh}
                 <span className="ps-chip-count">{facetCounts.byTag[tg.id] ?? 0}</span>
@@ -270,9 +316,9 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
           {facetCounts.total === 0 ? <p className="ps-status">{t('empty')}</p> : null}
           {facetCounts.total > 0 && sorted.length === 0 ? <p className="ps-status">{t('emptySearch')}</p> : null}
 
-          {sorted.length > 0 ? (
+          {pageEntries.length > 0 ? (
             <ul className="ps-cards">
-              {sorted.map((entry) => {
+              {pageEntries.map((entry) => {
                 const phase = installing[entry.full_name]
                 const installedNow = isInstalled(entry)
                 return (
@@ -315,6 +361,42 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                 )
               })}
             </ul>
+          ) : null}
+
+          {sorted.length > 0 ? (
+            <div className="ps-pagination">
+              <label className="ps-select">
+                <span className="ps-select-label">{t('perPage')}</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.currentTarget.value))
+                    resetPage()
+                  }}
+                  aria-label={t('perPage')}
+                >
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="ps-pageinfo">
+                {currentPage} / {totalPages}
+              </span>
+              <button type="button" className="ps-pager" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+                {t('prev')}
+              </button>
+              <button
+                type="button"
+                className="ps-pager"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                {t('next')}
+              </button>
+            </div>
           ) : null}
         </>
       ) : null}
