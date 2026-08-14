@@ -68,13 +68,25 @@ function matchesSpec(specs: string[], fullName: string): boolean {
   return specs.some((s) => s.toLowerCase().includes(needle))
 }
 
-function parseRepo(input: string): string | null {
-  const s = input.trim()
-  if (!s) return null
-  if (/^[\w.-]+\/[\w.-]+$/.test(s)) return s
-  const m = s.match(/github\.com[\/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[/#?].*)?$/i)
-  if (m) return `${m[1]}/${m[2]}`
+function extractOwnerRepo(spec: string): string | null {
+  const git = spec.match(/(?:github\.com[\/:]|^github:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:#|$)/i)
+  if (git) return `${git[1]}/${git[2]}`
+  if (/^[\w.-]+\/[\w.-]+$/.test(spec)) return spec
   return null
+}
+
+function parseSpec(input: string): string | null {
+  let s = input.trim()
+  if (!s) return null
+  // If it's a full command (dsh plugin add … / pnpm add …), take the spec after "add".
+  const cmd = s.match(/(?:^|\s)add\s+(.+)$/)
+  if (cmd) s = cmd[1].trim()
+  s = s.replace(/^['"]|['"]$/g, '')
+  if (!s) return null
+  if (/^[\w.-]+\/[\w.-]+$/.test(s)) return `github:${s}`
+  const url = s.match(/^(?:https?:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?(?:#(.*))?$/i)
+  if (url) return `github:${url[1]}${url[2] ? '#' + url[2] : ''}`
+  return s
 }
 
 function pageList(current: number, total: number): (number | '…')[] {
@@ -216,40 +228,40 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     setTimeout(() => setNotice(null), 6000)
   }
 
-  const doInstall = (fullName: string): Promise<void> => {
-    setInstalling((prev) => ({ ...prev, [fullName]: 'installing' }))
+  const doInstall = (spec: string): Promise<void> => {
+    const key = extractOwnerRepo(spec) ?? spec
+    setInstalling((prev) => ({ ...prev, [key]: 'installing' }))
     setInstallErrors((prev) => {
       const next = { ...prev }
-      delete next[fullName]
+      delete next[key]
       return next
     })
     return fetch('/plugin-store/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName }),
+      body: JSON.stringify({ spec }),
     })
       .then((r) => r.json())
       .then((res) => {
         if (res && res.ok) {
-          setInstalling((prev) => ({ ...prev, [fullName]: 'installed' }))
-          setInstalledSpecs((prev) => [...prev, fullName])
-          setInstallMeta((prev) => {
-            const entry = catalog?.entries?.find((x) => x.full_name === fullName)
-            return { ...prev, [fullName]: { pushedAt: entry?.pushed_at ?? '', installedAt: Date.now() } }
-          })
-          showNotice('success', res.log || `${fullName} ${t('installSuccess')}`)
+          setInstalling((prev) => ({ ...prev, [key]: 'installed' }))
+          setInstalledSpecs((prev) => [...prev, spec])
+          fetch('/plugin-store/install-meta')
+            .then((r) => r.json())
+            .then((m) => setInstallMeta(m && m.meta && typeof m.meta === 'object' ? m.meta : {}))
+          showNotice('success', res.log || `${spec} ${t('installSuccess')}`)
         } else {
-          setInstalling((prev) => ({ ...prev, [fullName]: 'error' }))
+          setInstalling((prev) => ({ ...prev, [key]: 'error' }))
           const msg = res?.log || res?.error?.message || t('installFailed')
-          setInstallErrors((prev) => ({ ...prev, [fullName]: msg }))
-          showNotice('error', `${fullName}: ${msg}`)
+          setInstallErrors((prev) => ({ ...prev, [key]: msg }))
+          showNotice('error', `${spec}: ${msg}`)
         }
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : String(e)
-        setInstalling((prev) => ({ ...prev, [fullName]: 'error' }))
-        setInstallErrors((prev) => ({ ...prev, [fullName]: msg }))
-        showNotice('error', `${fullName}: ${msg}`)
+        setInstalling((prev) => ({ ...prev, [key]: 'error' }))
+        setInstallErrors((prev) => ({ ...prev, [key]: msg }))
+        showNotice('error', `${spec}: ${msg}`)
       })
   }
 
@@ -298,20 +310,20 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
       return
     }
     for (const e of targets) {
-      await doInstall(e.full_name)
+      await doInstall(`github:${e.full_name}`)
     }
     showNotice('success', `已更新 ${targets.length} 个插件，重启后生效`)
   }
 
   const submitManual = () => {
-    const fullName = parseRepo(manualUrl)
-    if (!fullName) {
+    const spec = parseSpec(manualUrl)
+    if (!spec) {
       showNotice('error', t('invalidUrl'))
       return
     }
     setShowManual(false)
     setManualUrl('')
-    doInstall(fullName)
+    doInstall(spec)
   }
 
   const resetPage = () => setPage(1)
@@ -514,7 +526,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                         className="ps-install"
                         data-state={phase === 'error' ? 'error' : installedNow ? 'installed' : 'idle'}
                         disabled={phase === 'installing' || phase === 'uninstalling'}
-                        onClick={() => (installedNow && !hasUpd ? doUninstall(entry.full_name) : doInstall(entry.full_name))}
+                        onClick={() => (installedNow && !hasUpd ? doUninstall(entry.full_name) : doInstall(`github:${entry.full_name}`))}
                       >
                         {phase === 'installing'
                           ? t('installing')
@@ -625,7 +637,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             <input
               type="text"
               value={manualUrl}
-              placeholder="https://github.com/owner/repo"
+              placeholder="dsh plugin add github:owner/repo 或 @scope/pkg"
               onChange={(e) => setManualUrl(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submitManual()

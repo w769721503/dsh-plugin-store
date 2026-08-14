@@ -46,7 +46,26 @@ function isBundle(dep: string, profile: string): boolean {
   }
 }
 
-/** Add new bundle deps and drop bundles whose dependency was removed. */
+/**
+ * Bundles shipped with the DSH installation (resolved from the app's own
+ * node_modules via the `$DSH_HOME/profiles/node_modules` fallback — never
+ * from the profile's `dependencies`). Mirror of the harness constants in
+ * `@deepseek-ai/dsh-app-boot` (`PROFILE_TEMPLATES` /
+ * `INSTALLATION_OWNED_PROFILE_TUPLES`). These must never be pruned.
+ */
+const INSTALLATION_OWNED_BUNDLES: Record<string, string[]> = {
+  web: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+  headless: [
+    '@deepseek-ai/dsh-base',
+    '@deepseek-ai/dsh-web-app',
+    '@deepseek-ai/dsh-headless',
+  ],
+}
+
+/**
+ * Add new bundle deps, restore missing shipped bundles, and drop only
+ * out-of-tree bundles (installed via the store) whose dependency was removed.
+ */
 function reconcile(profile: string): void {
   const pkgPath = join(profileDir(profile), 'package.json')
   if (!existsSync(pkgPath)) return
@@ -54,8 +73,10 @@ function reconcile(profile: string): void {
   const deps = Object.keys(pkg.dependencies ?? {})
   const depSet = new Set(deps)
   const bundles: string[] = pkg.dsh?.profile?.bundles ?? []
+  const owned = INSTALLATION_OWNED_BUNDLES[profile] ?? []
   let changed = false
 
+  // Add any installed dependency that is a bundle.
   for (const dep of deps) {
     if (isBundle(dep, profile) && !bundles.includes(dep)) {
       bundles.push(dep)
@@ -63,7 +84,20 @@ function reconcile(profile: string): void {
     }
   }
 
-  const filtered = bundles.filter((b) => depSet.has(b))
+  // Restore shipped bundles that were pruned (e.g. by an older buggy build),
+  // keeping them in front so the template layer order is preserved.
+  for (const b of [...owned].reverse()) {
+    if (!bundles.includes(b)) {
+      bundles.unshift(b)
+      changed = true
+    }
+  }
+
+  // Drop only out-of-tree bundles whose dependency is gone. Installation-owned
+  // bundles are never in `dependencies`, so a naive `depSet.has(b)` filter
+  // would silently delete them and break the next boot (e.g. the `webServer`
+  // service never starts → "1 entry did not activate").
+  const filtered = bundles.filter((b) => depSet.has(b) || owned.includes(b))
   if (filtered.length !== bundles.length) {
     bundles.length = 0
     bundles.push(...filtered)
@@ -223,45 +257,62 @@ function pnpmRun(args: string[], profile: string, onLog?: (line: string) => void
   })
 }
 
-/** Map a repository `owner/repo` back to its installed dependency key. */
+/** Map a repository `owner/repo` or npm name back to its installed dependency key. */
 function findDependencyKey(fullName: string, profile: string): string | null {
   const deps = readInstalled(profile).dependencies
   const needle = fullName.toLowerCase()
   const short = fullName.split('/')[1]?.toLowerCase() ?? ''
   for (const [key, value] of Object.entries(deps)) {
+    if (key.toLowerCase() === needle) return key
     if (typeof value === 'string' && value.toLowerCase().includes(needle)) return key
     if (key.toLowerCase() === short) return key
   }
   return null
 }
 
+/** Extract `owner/repo` from an install spec, or null for plain npm names. */
+function extractOwnerRepo(spec: string): string | null {
+  const git = spec.match(/(?:github\.com[\/:]|^github:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:#|$)/i)
+  if (git) return `${git[1]}/${git[2]}`
+  if (/^[\w.-]+\/[\w.-]+$/.test(spec)) return spec
+  return null
+}
+
 export async function runInstall(
-  fullName: string,
+  spec: string,
   profile = 'web',
   token = '',
   onLog?: (line: string) => void,
 ): Promise<InstallResult> {
-  // 1. Pre-check: is the repo an installable DSH bundle?
-  try {
-    const info = await inspectRepo(fullName, token)
-    if (!info.isBundle) {
-      return { ok: false, code: null, log: info.reason ?? '该仓库不是可安装的 DSH 插件。' }
+  const ownerRepo = extractOwnerRepo(spec)
+  const lookupKey = ownerRepo ?? spec
+  const isSimpleGit = ownerRepo !== null && !spec.includes('#')
+
+  // 1. Pre-check (only for a simple github:owner/repo — we can read its root package.json).
+  if (isSimpleGit) {
+    try {
+      const info = await inspectRepo(ownerRepo as string, token)
+      if (!info.isBundle) {
+        return { ok: false, code: null, log: info.reason ?? '该仓库不是可安装的 DSH 插件。' }
+      }
+    } catch {
+      // Pre-check failed (network / rate limit) — proceed and let pnpm decide.
     }
-  } catch {
-    // Pre-check failed (network / rate limit) — proceed and let pnpm decide.
   }
 
-  // 2. Is this an update of an already-installed plugin? Record the baseline push time.
-  const isUpdate = findDependencyKey(fullName, profile) !== null
+  // 2. Update detection: already installed? Record the baseline push time.
+  const isUpdate = findDependencyKey(lookupKey, profile) !== null
   let pushedAt = ''
-  try {
-    pushedAt = await fetchRepoPushedAt(fullName, token)
-  } catch {
-    pushedAt = ''
+  if (ownerRepo) {
+    try {
+      pushedAt = await fetchRepoPushedAt(ownerRepo, token)
+    } catch {
+      pushedAt = ''
+    }
   }
 
   // 3. pnpm add (updates in place when already installed).
-  const result = await pnpmRun(['add', `github:${fullName}`], profile, onLog)
+  const result = await pnpmRun(['add', spec], profile, onLog)
   if (result.code !== 0) {
     return { ok: false, code: result.code, log: result.log.slice(-4000) || '安装失败（pnpm 退出码非 0）。' }
   }
@@ -278,13 +329,13 @@ export async function runInstall(
   }
 
   // 5. Confirm the package is a bundle.
-  const key = findDependencyKey(fullName, profile)
+  const key = findDependencyKey(lookupKey, profile)
   const after = readInstalled(profile).bundles
   if (key === null || !after.includes(key)) {
     return { ok: false, code: 0, log: '已作为普通依赖安装，但未声明 dsh.bundle —— 该仓库不是 DSH 插件。' }
   }
 
-  recordInstall(fullName, pushedAt)
+  recordInstall(lookupKey, pushedAt)
   return { ok: true, code: 0, log: isUpdate ? '更新成功，重启 DSH 后生效。' : '安装成功，重启 DSH 后生效。' }
 }
 

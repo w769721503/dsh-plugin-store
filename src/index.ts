@@ -138,16 +138,19 @@ export function apply(ctx: Ctx) {
             }
 
             if (pathname === '/plugin-store/install' && req.method === 'POST') {
-              const body = (await readJson(req)) as { full_name?: unknown }
-              const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : ''
-              if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) {
-                sendJson(res, 400, { ok: false, error: { code: 'bad_full_name', message: 'Invalid repository name.' } })
+              const body = (await readJson(req)) as { spec?: unknown; full_name?: unknown }
+              let spec = typeof body?.spec === 'string' ? body.spec.trim() : ''
+              if (!spec && typeof body?.full_name === 'string') {
+                spec = `github:${body.full_name.trim()}`
+              }
+              if (!spec || spec.length > 500) {
+                sendJson(res, 400, { ok: false, error: { code: 'bad_spec', message: 'Invalid install spec.' } })
                 return
               }
-              const result = await runInstall(fullName, profile, token)
+              const result = await runInstall(spec, profile, token)
               sendJson(res, result.ok ? 200 : 500, {
                 ok: result.ok,
-                full_name: fullName,
+                spec,
                 code: result.code,
                 log: result.log.slice(-4000),
               })
