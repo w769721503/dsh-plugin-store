@@ -28,6 +28,7 @@ interface CatalogResponse {
   ok: boolean
   total: number
   fetched: number
+  partial?: boolean
   entries: StoreEntry[]
   error?: { message: string }
 }
@@ -225,6 +226,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
 
   const total = catalog?.total ?? 0
   const fetched = catalog?.fetched ?? 0
+  const partial = catalog?.partial === true
 
   return (
     <div className="ps-root" aria-busy={loading}>
@@ -256,7 +258,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             </h3>
             <span>
               {t('indexedCount')} {facetCounts.indexed}
-              {fetched > 0 && fetched < total ? ` · 已加载 ${fetched}` : ''}
+              {fetched > 0 && fetched < total ? ` · 已加载 ${fetched}${partial ? '（限流，部分）' : ''}` : ''}
             </span>
             <button type="button" className="ps-refresh" onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
               {t('refresh')}

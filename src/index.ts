@@ -24,12 +24,12 @@ export function apply(ctx: Ctx) {
   const token = process.env.GITHUB_TOKEN || process.env.DSH_PLUGIN_STORE_TOKEN || ''
   const profile = process.env.DSH_PLUGIN_STORE_PROFILE || 'web'
 
-  let cache: { at: number; total: number; entries: unknown[] } | null = null
+  let cache: { at: number; total: number; entries: unknown[]; partial: boolean } | null = null
 
   async function catalog(force: boolean) {
     if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache
-    const { total, entries } = await fetchCatalog(token)
-    cache = { at: Date.now(), total, entries }
+    const { total, entries, partial } = await fetchCatalog(token)
+    cache = { at: Date.now(), total, entries, partial }
     return cache
   }
 
@@ -45,7 +45,13 @@ export function apply(ctx: Ctx) {
             if (pathname === '/plugin-store/catalog' && (req.method === 'GET' || req.method === 'HEAD')) {
               const force = url.searchParams.get('refresh') === '1'
               const data = await catalog(force)
-              sendJson(res, 200, { ok: true, total: data.total, fetched: data.entries.length, entries: data.entries })
+              sendJson(res, 200, {
+                ok: true,
+                total: data.total,
+                fetched: data.entries.length,
+                partial: data.partial,
+                entries: data.entries,
+              })
               return
             }
 
