@@ -480,6 +480,10 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             ))}
           </div>
 
+          {category === 'installed' && partial ? (
+            <p className="ps-status">正在加载全部插件，已安装列表将自动补全…</p>
+          ) : null}
+
           {facetCounts.total === 0 ? <p className="ps-status">{t('empty')}</p> : null}
           {facetCounts.total > 0 && sorted.length === 0 ? <p className="ps-status">{t('emptySearch')}</p> : null}
 

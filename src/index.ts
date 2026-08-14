@@ -78,9 +78,11 @@ export function apply(ctx: Ctx) {
 
   async function catalog(force: boolean): Promise<CatalogCache> {
     if (!force) {
-      if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache
+      const fresh = cache !== null && Date.now() - cache.at < CACHE_TTL_MS
+      // Only serve a complete, fresh cache as-is; a partial cache must keep
+      // refreshing in the background until it is complete.
+      if (fresh && cache && !cache.partial) return cache
       if (cache) {
-        // Stale cache: return it immediately and refresh in the background.
         refreshInBackground()
         return cache
       }
@@ -88,10 +90,10 @@ export function apply(ctx: Ctx) {
       refreshInBackground()
       return fetchFastTop()
     }
-    // force: clear caches, refresh, return a fast top page.
-    cache = null
-    topCache = null
+    // force: keep the existing cache so installed plugins stay visible while a
+    // full refresh runs in the background.
     refreshInBackground()
+    if (cache) return cache
     return fetchFastTop()
   }
 
