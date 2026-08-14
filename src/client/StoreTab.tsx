@@ -33,8 +33,8 @@ interface CatalogResponse {
   error?: { message: string }
 }
 
-type CategoryFilter = 'all' | CategoryId
-type TagFilter = 'all' | 'indexed' | 'installed' | TagId
+type CategoryFilter = 'all' | 'installed' | CategoryId
+type TagFilter = 'all' | 'indexed' | TagId
 type InstallPhase = 'installing' | 'installed' | 'error' | 'uninstalling'
 
 const PAGE_SIZES = [10, 30, 50]
@@ -155,19 +155,14 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     return { byTag, indexed, total: entries.length }
   }, [catalog])
 
-  const installedCount = useMemo(() => {
-    const entries = catalog?.entries ?? []
-    return entries.filter((e) => installing[e.full_name] === 'installed' || matchesSpec(installedSpecs, e.full_name)).length
-  }, [catalog, installedSpecs, installing])
-
   const filtered = useMemo(() => {
     const entries = catalog?.entries ?? []
     const q = query.trim().toLowerCase()
     return entries.filter((e) => {
       if (q && !searchText(e).includes(q)) return false
+      if (category === 'installed') return installing[e.full_name] === 'installed' || matchesSpec(installedSpecs, e.full_name)
       if (category !== 'all' && e.category !== category) return false
       if (tag === 'indexed') return e.indexed
-      if (tag === 'installed') return installing[e.full_name] === 'installed' || matchesSpec(installedSpecs, e.full_name)
       if (tag !== 'all' && e.primaryTag !== tag && !e.tags.includes(tag)) return false
       return true
     })
@@ -358,6 +353,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                 aria-label={t('category')}
               >
                 <option value="all">{t('allCategories')}</option>
+                <option value="installed">{t('installedFilter')}</option>
                 {CATEGORIES.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.zh}
@@ -408,18 +404,6 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             >
               {t('indexed')}
               <span className="ps-chip-count">{facetCounts.indexed}</span>
-            </button>
-            <button
-              type="button"
-              className="ps-chip"
-              data-active={tag === 'installed'}
-              onClick={() => {
-                setTag('installed')
-                resetPage()
-              }}
-            >
-              {t('installedFilter')}
-              <span className="ps-chip-count">{installedCount}</span>
             </button>
             {TAGS.map((tg) => (
               <button

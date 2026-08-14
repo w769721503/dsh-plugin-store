@@ -103,7 +103,6 @@
   line-height: 18px;
 }
 .ps-refresh {
-  margin-left: auto;
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-label-primary);
@@ -383,6 +382,7 @@
 }
 
 .ps-manual {
+  margin-left: auto;
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-label-primary);

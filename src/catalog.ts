@@ -1,8 +1,9 @@
 // Fetches the plugin catalog from the GitHub Search API for the `dsh-plugin`
 // topic. The Search API caps a single query at 1000 results, so we shard the
 // topic by disjoint `stars:` ranges (each well under the cap) and merge them,
-// which lets the store load every repository in the topic. Results are reduced
-// to the leaf fields the store UI needs.
+// which loads every repository in the topic. Requests are spaced to respect
+// GitHub's search rate limit and retried on 403/429, so a full load completes
+// even without a token (just more slowly).
 
 import { classify, type Classification } from './categories'
 
@@ -33,10 +34,17 @@ const MAX_PAGES = 10 // per shard; each shard is kept under the 1000-result cap
 // long low-star tail (stars 0/1/2 are the largest shards) stays under 1000.
 const STAR_RANGES = ['>=10', '5..9', '3..4', '2', '1', '0']
 
+const RETRY_DELAY_MS = 30_000
+const MAX_RETRIES = 3
+
 export interface CatalogResult {
   total: number
   entries: PluginEntry[]
   partial: boolean
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 interface ShardResult {
@@ -45,7 +53,7 @@ interface ShardResult {
   partial: boolean
 }
 
-async function fetchShard(range: string, headers: Record<string, string>): Promise<ShardResult> {
+async function fetchShard(range: string, headers: Record<string, string>, delayMs: number): Promise<ShardResult> {
   const q = `${QUERY} stars:${range}`
   const entries: PluginEntry[] = []
   let total = 0
@@ -53,18 +61,29 @@ async function fetchShard(range: string, headers: Record<string, string>): Promi
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const url = `${GITHUB_API}?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=${page}`
-    const res = await fetch(url, { headers })
-    if (res.status === 403 || res.status === 429) {
+
+    let data: { total_count?: number; items?: unknown[] } | null = null
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const res = await fetch(url, { headers })
+      if (res.status === 403 || res.status === 429) {
+        await sleep(RETRY_DELAY_MS)
+        continue
+      }
+      if (!res.ok) throw new Error(`GitHub API request failed (HTTP ${res.status})`)
+      data = (await res.json()) as { total_count?: number; items?: unknown[] }
+      break
+    }
+
+    if (data === null) {
       partial = true
       break
     }
-    if (!res.ok) throw new Error(`GitHub API request failed (HTTP ${res.status})`)
 
-    const data = (await res.json()) as { total_count?: number; items?: unknown[] }
     if (page === 1) total = typeof data.total_count === 'number' ? data.total_count : 0
     const items = Array.isArray(data.items) ? data.items : []
     for (const item of items) entries.push(normalize(item))
     if (items.length < PER_PAGE) break
+    await sleep(delayMs)
   }
 
   return { total, entries, partial }
@@ -77,13 +96,17 @@ export async function fetchCatalog(token?: string): Promise<CatalogResult> {
   }
   if (token) headers.Authorization = `Bearer ${token}`
 
+  // Unauthenticated search is 10 req/min (6.5s spacing); authenticated is
+  // 30 req/min (2.1s spacing).
+  const delayMs = token ? 2100 : 6500
+
   const seen = new Set<string>()
   const entries: PluginEntry[] = []
   let total = 0
   let partial = false
 
   for (const range of STAR_RANGES) {
-    const shard = await fetchShard(range, headers)
+    const shard = await fetchShard(range, headers, delayMs)
     total += shard.total
     if (shard.partial) partial = true
     for (const entry of shard.entries) {

@@ -4,10 +4,42 @@
 // (not the sandboxed subprocess service).
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fetchCatalog } from './catalog'
-import { readInstalled, runInstall, runUninstall } from './install'
+import { dshHome, readInstalled, runInstall, runUninstall } from './install'
 
-const CACHE_TTL_MS = 10 * 60 * 1000
+const CACHE_TTL_MS = 30 * 60 * 1000
+
+function cacheFile(): string {
+  return join(dshHome(), 'plugin-store-cache.json')
+}
+
+interface CatalogCache {
+  at: number
+  total: number
+  entries: unknown[]
+  partial: boolean
+}
+
+function readDiskCache(): CatalogCache | null {
+  try {
+    if (!existsSync(cacheFile())) return null
+    const parsed = JSON.parse(readFileSync(cacheFile(), 'utf8'))
+    if (typeof parsed?.at !== 'number' || !Array.isArray(parsed?.entries)) return null
+    return parsed as CatalogCache
+  } catch {
+    return null
+  }
+}
+
+function writeDiskCache(cache: CatalogCache): void {
+  try {
+    writeFileSync(cacheFile(), JSON.stringify(cache))
+  } catch {
+    // best-effort; caching is an optimization
+  }
+}
 
 export const name = 'dsh-plugin-store'
 export const inject = ['webServer']
@@ -24,12 +56,13 @@ export function apply(ctx: Ctx) {
   const token = process.env.GITHUB_TOKEN || process.env.DSH_PLUGIN_STORE_TOKEN || ''
   const profile = process.env.DSH_PLUGIN_STORE_PROFILE || 'web'
 
-  let cache: { at: number; total: number; entries: unknown[]; partial: boolean } | null = null
+  let cache: CatalogCache | null = readDiskCache()
 
   async function catalog(force: boolean) {
     if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache
     const { total, entries, partial } = await fetchCatalog(token)
     cache = { at: Date.now(), total, entries, partial }
+    writeDiskCache(cache)
     return cache
   }
 
