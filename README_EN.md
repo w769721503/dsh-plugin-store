@@ -48,7 +48,8 @@ Open Settings → Plugins → "Plugin store":
 - A two-column card grid: badge, latest/update status, name, description, stars, language / license / date, details + install/update/uninstall buttons.
 - A bottom pagination bar: page size, fixed page numbers, prev/next, jump input.
 
-<img width="797" height="1303" alt="screenshot" src="https://github.com/user-attachments/assets/91f0afb5-9335-4f2e-b3a0-a95db12625b3" />
+![Uploading image.png…]()
+
 
 ## How it works
 
