@@ -79,18 +79,16 @@ function parseRepo(input: string): string | null {
 
 function pageList(current: number, total: number): (number | '…')[] {
   if (total <= 7) {
-    const out: number[] = []
-    for (let i = 1; i <= total; i++) out.push(i)
-    return out
+    return Array.from({ length: total }, (_, i) => i + 1)
   }
-  const pages: (number | '…')[] = [1]
-  const start = Math.max(2, current - 1)
-  const end = Math.min(total - 1, current + 1)
-  if (start > 2) pages.push('…')
-  for (let i = start; i <= end; i++) pages.push(i)
-  if (end < total - 1) pages.push('…')
-  pages.push(total)
-  return pages
+  // Always 7 slots so the pagination bar never shifts when paging.
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, '…', total]
+  }
+  if (current >= total - 3) {
+    return [1, '…', total - 4, total - 3, total - 2, total - 1, total]
+  }
+  return [1, '…', current - 1, current, current + 1, '…', total]
 }
 
 export function StoreTab({ t }: { t: (key: string) => string }) {
