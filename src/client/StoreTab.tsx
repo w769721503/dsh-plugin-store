@@ -360,6 +360,11 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {t('indexedCount')} {facetCounts.indexed}
               {fetched > 0 && fetched < total ? ` · 已加载 ${fetched}${partial ? '（限流，部分）' : ''}` : ''}
             </span>
+            {category === 'installed' ? (
+              <button type="button" className="ps-update-all" onClick={updateAll} disabled={updatableCount === 0}>
+                {t('updateAll')}（{updatableCount}）
+              </button>
+            ) : null}
             <button type="button" className="ps-manual" onClick={() => setShowManual(true)}>
               {t('manualInstall')}
             </button>
@@ -367,14 +372,6 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {t('refresh')}
             </button>
           </div>
-
-          {category === 'installed' ? (
-            <div className="ps-update-all-bar">
-              <button type="button" className="ps-update-all" onClick={updateAll} disabled={updatableCount === 0}>
-                {t('updateAll')}（{updatableCount}）
-              </button>
-            </div>
-          ) : null}
 
           <div className="ps-toolbar">
             <label className="ps-search">

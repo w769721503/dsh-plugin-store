@@ -4,7 +4,7 @@
 // Activation still requires a DSH restart.
 
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -284,26 +284,34 @@ export async function runInstall(
 export async function runUninstall(
   fullName: string,
   profile = 'web',
-  onLog?: (line: string) => void,
 ): Promise<InstallResult> {
   const key = findDependencyKey(fullName, profile)
   if (!key) {
     return { ok: false, code: null, log: '未找到已安装的对应插件。' }
   }
 
-  const result = await pnpmRun(['remove', key], profile, onLog)
-  if (result.code !== 0) {
-    return { ok: false, code: result.code, log: result.log.slice(-4000) || '卸载失败（pnpm 退出码非 0）。' }
+  // Uninstall locally without pnpm: `pnpm remove` re-resolves git deps over
+  // the network and can hang. Editing package.json + dropping the bundle is
+  // enough for the runtime; the lockfile is reconciled on the next install.
+  try {
+    const pkgPath = join(profileDir(profile), 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+    if (pkg.dependencies && typeof pkg.dependencies === 'object') {
+      delete pkg.dependencies[key]
+    }
+    if (pkg.dsh?.profile?.bundles && Array.isArray(pkg.dsh.profile.bundles)) {
+      pkg.dsh.profile.bundles = pkg.dsh.profile.bundles.filter((b: string) => b !== key)
+    }
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
+  } catch (err) {
+    return { ok: false, code: null, log: `卸载失败：${err instanceof Error ? err.message : String(err)}` }
   }
 
+  // Best-effort remove the installed directory.
   try {
-    reconcile(profile)
-  } catch (err) {
-    return {
-      ok: false,
-      code: 0,
-      log: `卸载完成但更新 bundle 失败：${err instanceof Error ? err.message : String(err)}`,
-    }
+    rmSync(join(profileDir(profile), 'node_modules', key), { recursive: true, force: true })
+  } catch {
+    // ignore — an orphaned directory is harmless
   }
 
   recordUninstall(fullName)
