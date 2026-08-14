@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fetchCatalog } from './catalog'
-import { dshHome, readInstalled, runInstall, runUninstall } from './install'
+import { dshHome, readInstallMeta, readInstalled, runInstall, runUninstall } from './install'
 
 const CACHE_TTL_MS = 30 * 60 * 1000
 
@@ -90,6 +90,11 @@ export function apply(ctx: Ctx) {
 
             if (pathname === '/plugin-store/installed' && req.method === 'GET') {
               sendJson(res, 200, { ok: true, ...readInstalled(profile) })
+              return
+            }
+
+            if (pathname === '/plugin-store/install-meta' && req.method === 'GET') {
+              sendJson(res, 200, { ok: true, meta: readInstallMeta() })
               return
             }
 

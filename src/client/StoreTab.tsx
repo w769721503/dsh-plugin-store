@@ -109,6 +109,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
   const [installedSpecs, setInstalledSpecs] = useState<string[]>([])
   const [installing, setInstalling] = useState<Record<string, InstallPhase>>({})
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({})
+  const [installMeta, setInstallMeta] = useState<Record<string, { pushedAt: string; installedAt: number }>>({})
 
   useEffect(() => {
     let alive = true
@@ -118,13 +119,15 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     Promise.all([
       fetch(url).then((r) => r.json()),
       fetch('/plugin-store/installed').then((r) => r.json()),
+      fetch('/plugin-store/install-meta').then((r) => r.json()),
     ]).then(
-      ([c, i]) => {
+      ([c, i, m]) => {
         if (!alive) return
         if (!c || c.ok !== true) throw new Error(c?.error?.message || 'catalog load failed')
         setCatalog(c)
         const deps = i && i.dependencies && typeof i.dependencies === 'object' ? Object.values(i.dependencies) : []
         setInstalledSpecs(deps.filter((s): s is string => typeof s === 'string'))
+        setInstallMeta(m && m.meta && typeof m.meta === 'object' ? m.meta : {})
         setLoading(false)
       },
       (e) => {
@@ -140,6 +143,13 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
 
   const isInstalled = (entry: StoreEntry): boolean =>
     installing[entry.full_name] === 'installed' || matchesSpec(installedSpecs, entry.full_name)
+
+  const hasUpdate = (entry: StoreEntry): boolean => {
+    if (!isInstalled(entry)) return false
+    const meta = installMeta[entry.full_name]
+    if (!meta || !meta.pushedAt) return false
+    return (entry.pushed_at || '') > meta.pushedAt
+  }
 
   const facetCounts = useMemo(() => {
     const entries = catalog?.entries ?? []
@@ -193,14 +203,14 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     setTimeout(() => setNotice(null), 6000)
   }
 
-  const doInstall = (fullName: string) => {
+  const doInstall = (fullName: string): Promise<void> => {
     setInstalling((prev) => ({ ...prev, [fullName]: 'installing' }))
     setInstallErrors((prev) => {
       const next = { ...prev }
       delete next[fullName]
       return next
     })
-    fetch('/plugin-store/install', {
+    return fetch('/plugin-store/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ full_name: fullName }),
@@ -210,6 +220,10 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
         if (res && res.ok) {
           setInstalling((prev) => ({ ...prev, [fullName]: 'installed' }))
           setInstalledSpecs((prev) => [...prev, fullName])
+          setInstallMeta((prev) => {
+            const entry = catalog?.entries?.find((x) => x.full_name === fullName)
+            return { ...prev, [fullName]: { pushedAt: entry?.pushed_at ?? '', installedAt: Date.now() } }
+          })
           showNotice('success', res.log || `${fullName} ${t('installSuccess')}`)
         } else {
           setInstalling((prev) => ({ ...prev, [fullName]: 'error' }))
@@ -260,6 +274,20 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
         })
         showNotice('error', e instanceof Error ? e.message : String(e))
       })
+  }
+
+  const updatableCount = (catalog?.entries ?? []).filter((e) => isInstalled(e) && hasUpdate(e)).length
+
+  const updateAll = async () => {
+    const targets = (catalog?.entries ?? []).filter((e) => isInstalled(e) && hasUpdate(e))
+    if (targets.length === 0) {
+      showNotice('success', '全部已是最新')
+      return
+    }
+    for (const e of targets) {
+      await doInstall(e.full_name)
+    }
+    showNotice('success', `已更新 ${targets.length} 个插件，重启后生效`)
   }
 
   const submitManual = () => {
@@ -326,6 +354,14 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {t('refresh')}
             </button>
           </div>
+
+          {category === 'installed' ? (
+            <div className="ps-update-all-bar">
+              <button type="button" className="ps-update-all" onClick={updateAll} disabled={updatableCount === 0}>
+                {t('updateAll')}（{updatableCount}）
+              </button>
+            </div>
+          ) : null}
 
           <div className="ps-toolbar">
             <label className="ps-search">
@@ -428,10 +464,22 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {pageEntries.map((entry) => {
                 const phase = installing[entry.full_name]
                 const installedNow = isInstalled(entry)
+                const hasUpd = hasUpdate(entry)
                 return (
                   <li key={entry.full_name} className="ps-card">
                     <div className="ps-card-top">
                       <span className="ps-badge">{TAG_LABEL[entry.primaryTag] ?? entry.primaryTag}</span>
+                      {installedNow ? (
+                        hasUpd ? (
+                          <span className="ps-status-badge" data-type="update">
+                            {t('hasUpdate')}
+                          </span>
+                        ) : (
+                          <span className="ps-status-badge" data-type="latest">
+                            {t('latestVersion')}
+                          </span>
+                        )
+                      ) : null}
                       <span className="ps-stars">★ {entry.stars.toLocaleString()}</span>
                     </div>
                     <div className="ps-name" title={entry.full_name}>
@@ -452,15 +500,17 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                         className="ps-install"
                         data-state={phase === 'error' ? 'error' : installedNow ? 'installed' : 'idle'}
                         disabled={phase === 'installing' || phase === 'uninstalling'}
-                        onClick={() => (installedNow ? doUninstall(entry.full_name) : doInstall(entry.full_name))}
+                        onClick={() => (installedNow && !hasUpd ? doUninstall(entry.full_name) : doInstall(entry.full_name))}
                       >
                         {phase === 'installing'
                           ? t('installing')
                           : phase === 'uninstalling'
                             ? t('uninstalling')
-                            : installedNow
-                              ? t('uninstall')
-                              : t('install')}
+                            : hasUpd
+                              ? t('update')
+                              : installedNow
+                                ? t('uninstall')
+                                : t('install')}
                       </button>
                     </div>
                     {phase === 'error' && installErrors[entry.full_name] ? (

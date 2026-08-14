@@ -1,7 +1,7 @@
-// Installs / uninstalls plugins in the running DSH profile: pre-check whether
-// a repo is an installable DSH bundle, run `pnpm add`/`pnpm remove` in the
-// profile directory, then reconcile `dsh.profile.bundles`. Activation still
-// requires a DSH restart.
+// Installs / uninstalls / updates plugins in the running DSH profile:
+// pre-check whether a repo is an installable DSH bundle, run `pnpm add` /
+// `pnpm remove` in the profile directory, then reconcile `dsh.profile.bundles`.
+// Activation still requires a DSH restart.
 
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -79,6 +79,44 @@ function reconcile(profile: string): void {
   }
 }
 
+export interface InstallMeta {
+  [fullName: string]: { pushedAt: string; installedAt: number }
+}
+
+function metaFile(): string {
+  return join(dshHome(), 'plugin-store-installed.json')
+}
+
+export function readInstallMeta(): InstallMeta {
+  try {
+    if (!existsSync(metaFile())) return {}
+    const parsed = JSON.parse(readFileSync(metaFile(), 'utf8'))
+    return typeof parsed === 'object' && parsed !== null ? (parsed as InstallMeta) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeInstallMeta(meta: InstallMeta): void {
+  try {
+    writeFileSync(metaFile(), JSON.stringify(meta))
+  } catch {
+    // best-effort; update detection metadata is an optimization
+  }
+}
+
+export function recordInstall(fullName: string, pushedAt: string): void {
+  const meta = readInstallMeta()
+  meta[fullName] = { pushedAt, installedAt: Date.now() }
+  writeInstallMeta(meta)
+}
+
+export function recordUninstall(fullName: string): void {
+  const meta = readInstallMeta()
+  delete meta[fullName]
+  writeInstallMeta(meta)
+}
+
 interface RepoInspection {
   isBundle: boolean
   packageName: string | null
@@ -114,6 +152,23 @@ async function inspectRepo(fullName: string, token: string): Promise<RepoInspect
     isBundle: bundle,
     packageName: typeof pkg.name === 'string' ? pkg.name : null,
     reason: bundle ? null : '该仓库未声明 dsh.bundle.patch，不是可安装的 DSH 插件。',
+  }
+}
+
+/** Fetch the repo's latest push time, used as the baseline for update detection. */
+async function fetchRepoPushedAt(fullName: string, token: string): Promise<string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'dsh-plugin-store',
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+  try {
+    const res = await fetch(`https://api.github.com/repos/${fullName}`, { headers })
+    if (!res.ok) return ''
+    const data = (await res.json()) as { pushed_at?: string }
+    return typeof data.pushed_at === 'string' ? data.pushed_at : ''
+  } catch {
+    return ''
   }
 }
 
@@ -161,6 +216,18 @@ function pnpmRun(args: string[], profile: string, onLog?: (line: string) => void
   })
 }
 
+/** Map a repository `owner/repo` back to its installed dependency key. */
+function findDependencyKey(fullName: string, profile: string): string | null {
+  const deps = readInstalled(profile).dependencies
+  const needle = fullName.toLowerCase()
+  const short = fullName.split('/')[1]?.toLowerCase() ?? ''
+  for (const [key, value] of Object.entries(deps)) {
+    if (typeof value === 'string' && value.toLowerCase().includes(needle)) return key
+    if (key.toLowerCase() === short) return key
+  }
+  return null
+}
+
 export async function runInstall(
   fullName: string,
   profile = 'web',
@@ -177,14 +244,22 @@ export async function runInstall(
     // Pre-check failed (network / rate limit) — proceed and let pnpm decide.
   }
 
-  // 2. pnpm add
-  const before = readInstalled(profile).bundles
+  // 2. Is this an update of an already-installed plugin? Record the baseline push time.
+  const isUpdate = findDependencyKey(fullName, profile) !== null
+  let pushedAt = ''
+  try {
+    pushedAt = await fetchRepoPushedAt(fullName, token)
+  } catch {
+    pushedAt = ''
+  }
+
+  // 3. pnpm add (updates in place when already installed).
   const result = await pnpmRun(['add', `github:${fullName}`], profile, onLog)
   if (result.code !== 0) {
     return { ok: false, code: result.code, log: result.log.slice(-4000) || '安装失败（pnpm 退出码非 0）。' }
   }
 
-  // 3. Reconcile the profile bundle list.
+  // 4. Reconcile the profile bundle list.
   try {
     reconcile(profile)
   } catch (err) {
@@ -195,24 +270,15 @@ export async function runInstall(
     }
   }
 
-  // 4. Confirm a bundle was actually added.
+  // 5. Confirm the package is a bundle.
+  const key = findDependencyKey(fullName, profile)
   const after = readInstalled(profile).bundles
-  if (after.length > before.length) {
-    return { ok: true, code: 0, log: '安装成功，重启 DSH 后生效。' }
+  if (key === null || !after.includes(key)) {
+    return { ok: false, code: 0, log: '已作为普通依赖安装，但未声明 dsh.bundle —— 该仓库不是 DSH 插件。' }
   }
-  return { ok: false, code: 0, log: '已作为普通依赖安装，但未声明 dsh.bundle —— 该仓库不是 DSH 插件。' }
-}
 
-/** Map a repository `owner/repo` back to its installed dependency key. */
-function findDependencyKey(fullName: string, profile: string): string | null {
-  const deps = readInstalled(profile).dependencies
-  const needle = fullName.toLowerCase()
-  const short = fullName.split('/')[1]?.toLowerCase() ?? ''
-  for (const [key, value] of Object.entries(deps)) {
-    if (typeof value === 'string' && value.toLowerCase().includes(needle)) return key
-    if (key.toLowerCase() === short) return key
-  }
-  return null
+  recordInstall(fullName, pushedAt)
+  return { ok: true, code: 0, log: isUpdate ? '更新成功，重启 DSH 后生效。' : '安装成功，重启 DSH 后生效。' }
 }
 
 export async function runUninstall(
@@ -240,5 +306,6 @@ export async function runUninstall(
     }
   }
 
+  recordUninstall(fullName)
   return { ok: true, code: 0, log: '卸载成功，重启 DSH 后生效。' }
 }

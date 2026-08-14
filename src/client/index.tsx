@@ -41,6 +41,10 @@ const zh = {
   uninstallSuccess: '卸载成功，重启后生效',
   uninstallFailed: '卸载失败',
   cancel: '取消',
+  latestVersion: '最新版',
+  hasUpdate: '有更新',
+  update: '更新',
+  updateAll: '一键更新',
 }
 
 const en = {
@@ -81,6 +85,10 @@ const en = {
   uninstallSuccess: 'Uninstalled. Restart to apply.',
   uninstallFailed: 'Uninstall failed',
   cancel: 'Cancel',
+  latestVersion: 'Latest',
+  hasUpdate: 'Update available',
+  update: 'Update',
+  updateAll: 'Update all',
 }
 
 interface Ctx {
