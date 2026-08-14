@@ -1,0 +1,10 @@
+# dsh-plugin-store bundle patch.
+#
+# One dual-face row: the node half (lib/index.js) registers the Host plugin
+# (webServer routes for catalog/install), while the package's `dsh.client`
+# declaration makes the client-modules scanner serve its browser half
+# (lib/client.js) into window.__DSH_BOOT__, which adds the store tab to
+# Settings → Plugins.
+- insert:
+    - id: plugin-store
+      name: 'dsh-plugin-store'
