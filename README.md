@@ -48,7 +48,8 @@ dsh plugin --profile web add github:w769721503/dsh-plugin-store
 - 双列卡片网格：标签徽章、最新版/有更新状态、名称、简介、Star 数、语言 / License / 发布日期、查看详情 + 安装/更新/卸载按钮。
 - 底部分页栏：每页条数、页码（固定 7 格）、上一页/下一页、跳页。
 
-<img width="797" height="1303" alt="screenshot" src="https://github.com/user-attachments/assets/91f0afb5-9335-4f2e-b3a0-a95db12625b3" />
+<img width="785" height="1299" alt="image" src="https://github.com/user-attachments/assets/9fb6265d-7f0f-450b-b71b-917130e23ee2" />
+
 
 ## 工作原理
 
