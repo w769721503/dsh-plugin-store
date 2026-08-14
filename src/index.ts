@@ -90,10 +90,11 @@ export function apply(ctx: Ctx) {
       refreshInBackground()
       return fetchFastTop()
     }
-    // force: keep the existing cache so installed plugins stay visible while a
-    // full refresh runs in the background.
+    // force: keep the existing cache so installed plugins stay visible, but
+    // mark it partial so the client keeps polling until the background refresh
+    // lands and the fresh data replaces it.
     refreshInBackground()
-    if (cache) return cache
+    if (cache) return { ...cache, partial: true }
     return fetchFastTop()
   }
 
@@ -103,6 +104,7 @@ export function apply(ctx: Ctx) {
       topCache = { at: Date.now(), total: top.total, entries: top.entries, partial: true }
       return topCache
     } catch {
+      if (topCache) return topCache
       return { at: 0, total: 0, entries: [], partial: true }
     }
   }

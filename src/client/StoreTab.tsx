@@ -480,7 +480,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             ))}
           </div>
 
-          {category === 'installed' && partial ? (
+          {category === 'installed' && partial && fetched < total ? (
             <p className="ps-status">正在加载全部插件，已安装列表将自动补全…</p>
           ) : null}
 
