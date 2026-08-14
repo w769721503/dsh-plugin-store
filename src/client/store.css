@@ -305,6 +305,12 @@
   cursor: default;
   opacity: 0.5;
 }
+.ps-pager.ps-icon {
+  min-width: 28px;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 1;
+}
 
 .ps-notice {
   display: flex;

@@ -493,8 +493,15 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                   ))}
                 </select>
               </label>
-              <button type="button" className="ps-pager" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
-                {t('prev')}
+              <button
+                type="button"
+                className="ps-pager ps-icon"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+                title={t('prev')}
+                aria-label={t('prev')}
+              >
+                ‹
               </button>
               <div className="ps-pages">
                 {pageList(currentPage, totalPages).map((p, idx) =>
@@ -517,11 +524,13 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               </div>
               <button
                 type="button"
-                className="ps-pager"
+                className="ps-pager ps-icon"
                 disabled={currentPage >= totalPages}
                 onClick={() => setPage(currentPage + 1)}
+                title={t('next')}
+                aria-label={t('next')}
               >
-                {t('next')}
+                ›
               </button>
               <label className="ps-jump">
                 <span className="ps-select-label">{t('jumpTo')}</span>
@@ -535,8 +544,8 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                     if (e.key === 'Enter') jumpTo()
                   }}
                 />
-                <button type="button" className="ps-pager" onClick={jumpTo}>
-                  {t('go')}
+                <button type="button" className="ps-pager ps-icon" onClick={jumpTo} title={t('go')} aria-label={t('go')}>
+                  ↵
                 </button>
               </label>
             </div>
