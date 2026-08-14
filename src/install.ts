@@ -140,7 +140,7 @@ async function inspectRepo(fullName: string, token: string): Promise<RepoInspect
   }
 
   const data = (await res.json()) as { content?: string }
-  let pkg: { name?: unknown; dsh?: { bundle?: { patch?: unknown } } } = {}
+  let pkg: { name?: unknown; private?: unknown; dsh?: { bundle?: { patch?: unknown } } } = {}
   try {
     pkg = JSON.parse(Buffer.from(data.content ?? '', 'base64').toString('utf8'))
   } catch {
@@ -148,10 +148,17 @@ async function inspectRepo(fullName: string, token: string): Promise<RepoInspect
   }
 
   const bundle = pkg.dsh?.bundle?.patch !== undefined
+  let reason: string | null = null
+  if (!bundle) {
+    reason =
+      pkg.private === true
+        ? '该仓库是 private 合集包（如皮肤库/monorepo），不是单个可安装插件，请安装其中的具体子包。'
+        : '该仓库未声明 dsh.bundle.patch，不是可安装的 DSH 插件。'
+  }
   return {
     isBundle: bundle,
     packageName: typeof pkg.name === 'string' ? pkg.name : null,
-    reason: bundle ? null : '该仓库未声明 dsh.bundle.patch，不是可安装的 DSH 插件。',
+    reason,
   }
 }
 
