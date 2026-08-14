@@ -121,7 +121,7 @@ export async function fetchCatalog(token?: string): Promise<CatalogResult> {
   return { total, entries, partial }
 }
 
-/** Fetch just the top 100 by stars (1 request) — the fast first paint. */
+/** Fetch the top 300 by stars (3 rapid requests) — the fast first paint. */
 export async function fetchTopPage(token?: string): Promise<CatalogResult> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -129,17 +129,19 @@ export async function fetchTopPage(token?: string): Promise<CatalogResult> {
   }
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const url = `${GITHUB_API}?q=${encodeURIComponent(QUERY)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=1`
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`GitHub API request failed (HTTP ${res.status})`)
-
-  const data = (await res.json()) as { total_count?: number; items?: unknown[] }
-  const items = Array.isArray(data.items) ? data.items : []
-  return {
-    total: typeof data.total_count === 'number' ? data.total_count : 0,
-    entries: items.map((item) => normalize(item)),
-    partial: true,
+  const entries: PluginEntry[] = []
+  let total = 0
+  for (let page = 1; page <= 3; page++) {
+    const url = `${GITHUB_API}?q=${encodeURIComponent(QUERY)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=${page}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) break
+    const data = (await res.json()) as { total_count?: number; items?: unknown[] }
+    if (page === 1) total = typeof data.total_count === 'number' ? data.total_count : 0
+    const items = Array.isArray(data.items) ? data.items : []
+    for (const item of items) entries.push(normalize(item))
+    if (items.length < PER_PAGE) break
   }
+  return { total, entries, partial: true }
 }
 
 function normalize(item: any): PluginEntry {

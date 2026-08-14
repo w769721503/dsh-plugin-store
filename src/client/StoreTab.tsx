@@ -481,18 +481,20 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                 return (
                   <li key={entry.full_name} className="ps-card">
                     <div className="ps-card-top">
-                      <span className="ps-badge">{TAG_LABEL[entry.primaryTag] ?? entry.primaryTag}</span>
-                      {installedNow ? (
-                        hasUpd ? (
-                          <span className="ps-status-badge" data-type="update">
-                            {t('hasUpdate')}
-                          </span>
-                        ) : (
-                          <span className="ps-status-badge" data-type="latest">
-                            {t('latestVersion')}
-                          </span>
-                        )
-                      ) : null}
+                      <div className="ps-card-badges">
+                        <span className="ps-badge">{TAG_LABEL[entry.primaryTag] ?? entry.primaryTag}</span>
+                        {installedNow ? (
+                          hasUpd ? (
+                            <span className="ps-status-badge" data-type="update">
+                              {t('hasUpdate')}
+                            </span>
+                          ) : (
+                            <span className="ps-status-badge" data-type="latest">
+                              {t('latestVersion')}
+                            </span>
+                          )
+                        ) : null}
+                      </div>
                       <span className="ps-stars">★ {entry.stars.toLocaleString()}</span>
                     </div>
                     <div className="ps-name" title={entry.full_name}>
