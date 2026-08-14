@@ -1,6 +1,7 @@
-// Installs a plugin into the running DSH profile: pre-check whether the repo
-// is an installable DSH bundle, run `pnpm add` in the profile directory, then
-// reconcile `dsh.profile.bundles`. Activation still requires a DSH restart.
+// Installs / uninstalls plugins in the running DSH profile: pre-check whether
+// a repo is an installable DSH bundle, run `pnpm add`/`pnpm remove` in the
+// profile directory, then reconcile `dsh.profile.bundles`. Activation still
+// requires a DSH restart.
 
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -45,11 +46,13 @@ function isBundle(dep: string, profile: string): boolean {
   }
 }
 
+/** Add new bundle deps and drop bundles whose dependency was removed. */
 function reconcile(profile: string): void {
   const pkgPath = join(profileDir(profile), 'package.json')
   if (!existsSync(pkgPath)) return
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   const deps = Object.keys(pkg.dependencies ?? {})
+  const depSet = new Set(deps)
   const bundles: string[] = pkg.dsh?.profile?.bundles ?? []
   let changed = false
 
@@ -58,6 +61,13 @@ function reconcile(profile: string): void {
       bundles.push(dep)
       changed = true
     }
+  }
+
+  const filtered = bundles.filter((b) => depSet.has(b))
+  if (filtered.length !== bundles.length) {
+    bundles.length = 0
+    bundles.push(...filtered)
+    changed = true
   }
 
   if (changed) {
@@ -115,11 +125,11 @@ export interface InstallResult {
 
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000
 
-function pnpmAdd(spec: string, profile: string, onLog?: (line: string) => void): Promise<{ code: number | null; log: string }> {
+function pnpmRun(args: string[], profile: string, onLog?: (line: string) => void): Promise<{ code: number | null; log: string }> {
   return new Promise((resolve) => {
     const cwd = profileDir(profile)
     // `shell: true` on Windows resolves the pnpm.cmd shim (cmd.exe).
-    const child = spawn('pnpm', ['add', spec], {
+    const child = spawn('pnpm', args, {
       cwd,
       env: process.env,
       shell: process.platform === 'win32',
@@ -136,7 +146,7 @@ function pnpmAdd(spec: string, profile: string, onLog?: (line: string) => void):
     child.stderr?.on('data', drain)
 
     const timer = setTimeout(() => {
-      log += '\n[安装超时]'
+      log += '\n[操作超时]'
       child.kill()
     }, INSTALL_TIMEOUT_MS)
 
@@ -169,7 +179,7 @@ export async function runInstall(
 
   // 2. pnpm add
   const before = readInstalled(profile).bundles
-  const result = await pnpmAdd(`github:${fullName}`, profile, onLog)
+  const result = await pnpmRun(['add', `github:${fullName}`], profile, onLog)
   if (result.code !== 0) {
     return { ok: false, code: result.code, log: result.log.slice(-4000) || '安装失败（pnpm 退出码非 0）。' }
   }
@@ -191,4 +201,44 @@ export async function runInstall(
     return { ok: true, code: 0, log: '安装成功，重启 DSH 后生效。' }
   }
   return { ok: false, code: 0, log: '已作为普通依赖安装，但未声明 dsh.bundle —— 该仓库不是 DSH 插件。' }
+}
+
+/** Map a repository `owner/repo` back to its installed dependency key. */
+function findDependencyKey(fullName: string, profile: string): string | null {
+  const deps = readInstalled(profile).dependencies
+  const needle = fullName.toLowerCase()
+  const short = fullName.split('/')[1]?.toLowerCase() ?? ''
+  for (const [key, value] of Object.entries(deps)) {
+    if (typeof value === 'string' && value.toLowerCase().includes(needle)) return key
+    if (key.toLowerCase() === short) return key
+  }
+  return null
+}
+
+export async function runUninstall(
+  fullName: string,
+  profile = 'web',
+  onLog?: (line: string) => void,
+): Promise<InstallResult> {
+  const key = findDependencyKey(fullName, profile)
+  if (!key) {
+    return { ok: false, code: null, log: '未找到已安装的对应插件。' }
+  }
+
+  const result = await pnpmRun(['remove', key], profile, onLog)
+  if (result.code !== 0) {
+    return { ok: false, code: result.code, log: result.log.slice(-4000) || '卸载失败（pnpm 退出码非 0）。' }
+  }
+
+  try {
+    reconcile(profile)
+  } catch (err) {
+    return {
+      ok: false,
+      code: 0,
+      log: `卸载完成但更新 bundle 失败：${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  return { ok: true, code: 0, log: '卸载成功，重启 DSH 后生效。' }
 }

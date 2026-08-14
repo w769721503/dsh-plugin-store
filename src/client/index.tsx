@@ -32,6 +32,15 @@ const zh = {
   jumpTo: '跳转',
   go: '前往',
   close: '关闭',
+  manualInstall: '手动安装',
+  manualHint: '粘贴 GitHub 仓库链接，自动识别并安装',
+  invalidUrl: '无法识别的 GitHub 链接，请输入 owner/repo 或完整链接',
+  installedFilter: '已安装',
+  uninstall: '卸载',
+  uninstalling: '卸载中…',
+  uninstallSuccess: '卸载成功，重启后生效',
+  uninstallFailed: '卸载失败',
+  cancel: '取消',
 }
 
 const en = {
@@ -63,6 +72,15 @@ const en = {
   jumpTo: 'Jump to',
   go: 'Go',
   close: 'Close',
+  manualInstall: 'Install manually',
+  manualHint: 'Paste a GitHub repo link to install it.',
+  invalidUrl: 'Unrecognized GitHub link. Enter owner/repo or a full URL.',
+  installedFilter: 'Installed',
+  uninstall: 'Uninstall',
+  uninstalling: 'Uninstalling…',
+  uninstallSuccess: 'Uninstalled. Restart to apply.',
+  uninstallFailed: 'Uninstall failed',
+  cancel: 'Cancel',
 }
 
 interface Ctx {

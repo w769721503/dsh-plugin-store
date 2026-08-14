@@ -34,8 +34,8 @@ interface CatalogResponse {
 }
 
 type CategoryFilter = 'all' | CategoryId
-type TagFilter = 'all' | 'indexed' | TagId
-type InstallPhase = 'installing' | 'installed' | 'error'
+type TagFilter = 'all' | 'indexed' | 'installed' | TagId
+type InstallPhase = 'installing' | 'installed' | 'error' | 'uninstalling'
 
 const PAGE_SIZES = [10, 30, 50]
 
@@ -61,6 +61,20 @@ function searchText(entry: StoreEntry): string {
   ]
     .join(' ')
     .toLowerCase()
+}
+
+function matchesSpec(specs: string[], fullName: string): boolean {
+  const needle = fullName.toLowerCase()
+  return specs.some((s) => s.toLowerCase().includes(needle))
+}
+
+function parseRepo(input: string): string | null {
+  const s = input.trim()
+  if (!s) return null
+  if (/^[\w.-]+\/[\w.-]+$/.test(s)) return s
+  const m = s.match(/github\.com[\/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[/#?].*)?$/i)
+  if (m) return `${m[1]}/${m[2]}`
+  return null
 }
 
 function pageList(current: number, total: number): (number | '…')[] {
@@ -92,6 +106,8 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [jump, setJump] = useState('')
+  const [showManual, setShowManual] = useState(false)
+  const [manualUrl, setManualUrl] = useState('')
   const [installedSpecs, setInstalledSpecs] = useState<string[]>([])
   const [installing, setInstalling] = useState<Record<string, InstallPhase>>({})
   const [installErrors, setInstallErrors] = useState<Record<string, string>>({})
@@ -124,6 +140,9 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     }
   }, [refreshKey])
 
+  const isInstalled = (entry: StoreEntry): boolean =>
+    installing[entry.full_name] === 'installed' || matchesSpec(installedSpecs, entry.full_name)
+
   const facetCounts = useMemo(() => {
     const entries = catalog?.entries ?? []
     const byTag: Record<string, number> = {}
@@ -136,6 +155,11 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
     return { byTag, indexed, total: entries.length }
   }, [catalog])
 
+  const installedCount = useMemo(() => {
+    const entries = catalog?.entries ?? []
+    return entries.filter((e) => installing[e.full_name] === 'installed' || matchesSpec(installedSpecs, e.full_name)).length
+  }, [catalog, installedSpecs, installing])
+
   const filtered = useMemo(() => {
     const entries = catalog?.entries ?? []
     const q = query.trim().toLowerCase()
@@ -143,10 +167,11 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
       if (q && !searchText(e).includes(q)) return false
       if (category !== 'all' && e.category !== category) return false
       if (tag === 'indexed') return e.indexed
+      if (tag === 'installed') return installing[e.full_name] === 'installed' || matchesSpec(installedSpecs, e.full_name)
       if (tag !== 'all' && e.primaryTag !== tag && !e.tags.includes(tag)) return false
       return true
     })
-  }, [catalog, query, category, tag])
+  }, [catalog, query, category, tag, installedSpecs, installing])
 
   const sorted = useMemo(() => {
     const list = [...filtered]
@@ -170,48 +195,89 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
   const currentPage = Math.min(page, totalPages)
   const pageEntries = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const isInstalled = (entry: StoreEntry): boolean => {
-    if (installing[entry.full_name] === 'installed') return true
-    const needle = entry.full_name.toLowerCase()
-    return installedSpecs.some((s) => s.toLowerCase().includes(needle))
-  }
-
   const showNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text })
     setTimeout(() => setNotice(null), 6000)
   }
 
-  const install = (entry: StoreEntry) => {
-    setInstalling((prev) => ({ ...prev, [entry.full_name]: 'installing' }))
+  const doInstall = (fullName: string) => {
+    setInstalling((prev) => ({ ...prev, [fullName]: 'installing' }))
     setInstallErrors((prev) => {
       const next = { ...prev }
-      delete next[entry.full_name]
+      delete next[fullName]
       return next
     })
     fetch('/plugin-store/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ full_name: entry.full_name }),
+      body: JSON.stringify({ full_name: fullName }),
     })
       .then((r) => r.json())
       .then((res) => {
         if (res && res.ok) {
-          setInstalling((prev) => ({ ...prev, [entry.full_name]: 'installed' }))
-          setInstalledSpecs((prev) => [...prev, entry.full_name])
-          showNotice('success', res.log || `${entry.full_name} ${t('installSuccess')}`)
+          setInstalling((prev) => ({ ...prev, [fullName]: 'installed' }))
+          setInstalledSpecs((prev) => [...prev, fullName])
+          showNotice('success', res.log || `${fullName} ${t('installSuccess')}`)
         } else {
-          setInstalling((prev) => ({ ...prev, [entry.full_name]: 'error' }))
+          setInstalling((prev) => ({ ...prev, [fullName]: 'error' }))
           const msg = res?.log || res?.error?.message || t('installFailed')
-          setInstallErrors((prev) => ({ ...prev, [entry.full_name]: msg }))
-          showNotice('error', `${entry.full_name}: ${msg}`)
+          setInstallErrors((prev) => ({ ...prev, [fullName]: msg }))
+          showNotice('error', `${fullName}: ${msg}`)
         }
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : String(e)
-        setInstalling((prev) => ({ ...prev, [entry.full_name]: 'error' }))
-        setInstallErrors((prev) => ({ ...prev, [entry.full_name]: msg }))
-        showNotice('error', `${entry.full_name}: ${msg}`)
+        setInstalling((prev) => ({ ...prev, [fullName]: 'error' }))
+        setInstallErrors((prev) => ({ ...prev, [fullName]: msg }))
+        showNotice('error', `${fullName}: ${msg}`)
       })
+  }
+
+  const doUninstall = (fullName: string) => {
+    setInstalling((prev) => ({ ...prev, [fullName]: 'uninstalling' }))
+    fetch('/plugin-store/uninstall', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ full_name: fullName }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res && res.ok) {
+          setInstalling((prev) => {
+            const next = { ...prev }
+            delete next[fullName]
+            return next
+          })
+          setInstalledSpecs((prev) => prev.filter((s) => !s.toLowerCase().includes(fullName.toLowerCase())))
+          showNotice('success', res.log || t('uninstallSuccess'))
+        } else {
+          setInstalling((prev) => {
+            const next = { ...prev }
+            delete next[fullName]
+            return next
+          })
+          showNotice('error', res?.log || res?.error?.message || t('uninstallFailed'))
+        }
+      })
+      .catch((e) => {
+        setInstalling((prev) => {
+          const next = { ...prev }
+          delete next[fullName]
+          return next
+        })
+        showNotice('error', e instanceof Error ? e.message : String(e))
+      })
+  }
+
+  const submitManual = () => {
+    const fullName = parseRepo(manualUrl)
+    if (!fullName) {
+      showNotice('error', t('invalidUrl'))
+      return
+    }
+    setShowManual(false)
+    setManualUrl('')
+    doInstall(fullName)
   }
 
   const resetPage = () => setPage(1)
@@ -260,6 +326,9 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {t('indexedCount')} {facetCounts.indexed}
               {fetched > 0 && fetched < total ? ` · 已加载 ${fetched}${partial ? '（限流，部分）' : ''}` : ''}
             </span>
+            <button type="button" className="ps-manual" onClick={() => setShowManual(true)}>
+              {t('manualInstall')}
+            </button>
             <button type="button" className="ps-refresh" onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
               {t('refresh')}
             </button>
@@ -340,6 +409,18 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               {t('indexed')}
               <span className="ps-chip-count">{facetCounts.indexed}</span>
             </button>
+            <button
+              type="button"
+              className="ps-chip"
+              data-active={tag === 'installed'}
+              onClick={() => {
+                setTag('installed')
+                resetPage()
+              }}
+            >
+              {t('installedFilter')}
+              <span className="ps-chip-count">{installedCount}</span>
+            </button>
             {TAGS.map((tg) => (
               <button
                 key={tg.id}
@@ -388,14 +469,16 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                         type="button"
                         className="ps-install"
                         data-state={phase === 'error' ? 'error' : installedNow ? 'installed' : 'idle'}
-                        disabled={phase === 'installing' || installedNow}
-                        onClick={() => install(entry)}
+                        disabled={phase === 'installing' || phase === 'uninstalling'}
+                        onClick={() => (installedNow ? doUninstall(entry.full_name) : doInstall(entry.full_name))}
                       >
                         {phase === 'installing'
                           ? t('installing')
-                          : installedNow
-                            ? `${t('installed')} · ${t('restartHint')}`
-                            : t('install')}
+                          : phase === 'uninstalling'
+                            ? t('uninstalling')
+                            : installedNow
+                              ? t('uninstall')
+                              : t('install')}
                       </button>
                     </div>
                     {phase === 'error' && installErrors[entry.full_name] ? (
@@ -475,6 +558,33 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {showManual ? (
+        <div className="ps-modal-backdrop" onClick={() => setShowManual(false)}>
+          <div className="ps-modal" onClick={(e) => e.stopPropagation()}>
+            <h4>{t('manualInstall')}</h4>
+            <p className="ps-modal-hint">{t('manualHint')}</p>
+            <input
+              type="text"
+              value={manualUrl}
+              placeholder="https://github.com/owner/repo"
+              onChange={(e) => setManualUrl(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitManual()
+              }}
+              autoFocus
+            />
+            <div className="ps-modal-actions">
+              <button type="button" className="ps-install" onClick={submitManual}>
+                {t('install')}
+              </button>
+              <button type="button" className="ps-details" onClick={() => setShowManual(false)}>
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )

@@ -5,7 +5,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fetchCatalog } from './catalog'
-import { readInstalled, runInstall } from './install'
+import { readInstalled, runInstall, runUninstall } from './install'
 
 const CACHE_TTL_MS = 10 * 60 * 1000
 
@@ -68,6 +68,23 @@ export function apply(ctx: Ctx) {
                 return
               }
               const result = await runInstall(fullName, profile, token)
+              sendJson(res, result.ok ? 200 : 500, {
+                ok: result.ok,
+                full_name: fullName,
+                code: result.code,
+                log: result.log.slice(-4000),
+              })
+              return
+            }
+
+            if (pathname === '/plugin-store/uninstall' && req.method === 'POST') {
+              const body = (await readJson(req)) as { full_name?: unknown }
+              const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : ''
+              if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) {
+                sendJson(res, 400, { ok: false, error: { code: 'bad_full_name', message: 'Invalid repository name.' } })
+                return
+              }
+              const result = await runUninstall(fullName, profile)
               sendJson(res, result.ok ? 200 : 500, {
                 ok: result.ok,
                 full_name: fullName,
