@@ -282,8 +282,17 @@
 .ps-pagination {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 2px;
+  gap: 12px;
+  padding: 4px 2px;
+  flex-wrap: nowrap;
+}
+.ps-pagination-center {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
 }
 .ps-pageinfo {
   color: var(--dsw-alias-label-tertiary);
@@ -306,10 +315,12 @@
   opacity: 0.5;
 }
 .ps-pager.ps-icon {
-  min-width: 28px;
-  padding: 0 8px;
-  font-size: 14px;
+  height: 32px;
+  min-width: 36px;
+  padding: 0 12px;
+  font-size: 16px;
   line-height: 1;
+  font-weight: 600;
 }
 
 .ps-notice {
@@ -348,8 +359,8 @@
   gap: 4px;
 }
 .ps-pagenum {
-  min-width: 28px;
-  height: 28px;
+  min-width: 30px;
+  height: 30px;
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-label-secondary);
@@ -358,7 +369,7 @@
   line-height: 1;
   cursor: pointer;
   border-radius: 6px;
-  padding: 0 6px;
+  padding: 0 8px;
 }
 .ps-pagenum[data-active='true'] {
   border-color: var(--dsw-alias-state-business-primary);

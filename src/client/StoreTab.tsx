@@ -493,6 +493,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
                   ))}
                 </select>
               </label>
+              <div className="ps-pagination-center">
               <button
                 type="button"
                 className="ps-pager ps-icon"
@@ -532,6 +533,7 @@ export function StoreTab({ t }: { t: (key: string) => string }) {
               >
                 ›
               </button>
+              </div>
               <label className="ps-jump">
                 <span className="ps-select-label">{t('jumpTo')}</span>
                 <input
