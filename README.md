@@ -42,6 +42,7 @@ dsh plugin --profile web add github:w769721503/dsh-plugin-store
 - 工具栏：搜索框 + 分类下拉框 + 排序下拉框。
 - 单行横向滚动的类型标签条（全部类型 / 已收录 / 18 个分类标签，带计数）。
 - 双列卡片网格：标签徽章、名称、简介、Star 数、语言 / License / 发布日期、查看详情 + 安装按钮。
+<img width="797" height="1303" alt="image" src="https://github.com/user-attachments/assets/91f0afb5-9335-4f2e-b3a0-a95db12625b3" />
 
 ## 工作原理
 
