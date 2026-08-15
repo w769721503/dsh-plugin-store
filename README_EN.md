@@ -11,7 +11,7 @@
 
 # DSH Plugin Store
 
-> A DeepSeek Harness plugin that adds a **plugin store** to Settings → Plugins — browse, search, filter, and **one-click install / update / uninstall** `dsh-plugin` ecosystem plugins.
+> This is a built-in plugin store for DeepSeek Harness: add the plugin store in 'Settings → Plugins', browse, search, filter, and install/update/uninstall dsh-plugin ecosystem plugins with one click.
 
 **Install:**
 
