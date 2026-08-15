@@ -16,7 +16,7 @@
 **安装：**
 
 ```bash
-dsh plugin --profile web add github:w769721503/dsh-plugin-store
+dsh plugin --profile web add github:@0xKcyzz/dsh-plugin-store
 ```
 
 安装后**重启 DSH**，打开 设置 → 插件 → 「插件商店」。
