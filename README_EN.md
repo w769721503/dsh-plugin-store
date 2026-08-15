@@ -16,7 +16,7 @@
 **Install:**
 
 ```bash
-dsh plugin --profile web add github:w769721503/dsh-plugin-store
+dsh plugin --profile web add github:0xKcyzz/dsh-plugin-store
 ```
 
 Restart DSH, then open Settings → Plugins → "Plugin store".
